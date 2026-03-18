@@ -9,6 +9,7 @@ homepage = "https://github.com/jefftrojan/robopotato"
 readme = "README.md"
 keywords = ["ai-agents", "authentication", "websocket", "concurrency", "axum"]
 categories = ["web-programming", "authentication", "concurrency", "network-programming", "command-line-utilities"]
+exclude = ["assets/*", "demo.cast", "demo.sh", "tests/*", "WHITEPAPER.md"]
 
 [dependencies]
 # Web framework
