@@ -1,0 +1,10 @@
+[advisories]
+# RUSTSEC-2023-0071: Marvin Attack timing side-channel in the `rsa` crate.
+#
+# This vulnerability is in rsa 0.9.x, pulled in transitively by sqlx-mysql.
+# robopotato uses sqlx with the `sqlite` feature only — the MySQL driver
+# and its rsa dependency are compiled in but never exercised at runtime.
+# No fix is available upstream ("Solution: No fixed upgrade is available").
+#
+# Risk to robopotato: none. We perform no RSA operations.
+ignore = ["RUSTSEC-2023-0071"]
