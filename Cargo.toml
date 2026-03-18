@@ -1,0 +1,49 @@
+[package]
+name = "robopotato"
+version = "0.1.0"
+edition = "2021"
+description = "Lightweight inter-agent trust and shared state server"
+license = "MIT"
+
+[dependencies]
+# Web framework
+axum = { version = "0.8", features = ["ws", "macros"] }
+tokio = { version = "1", features = ["full"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Auth / HMAC signing
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+uuid = { version = "1", features = ["v4"] }
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Persistence (optional SQLite)
+sqlx = { version = "0.7", features = ["sqlite", "runtime-tokio-rustls", "chrono"], optional = true }
+
+# Config
+dotenvy = "0.15"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Errors
+thiserror = "1"
+anyhow = "1"
+
+[features]
+default = []
+persist = ["sqlx"]
+
+[[bin]]
+name = "robopotato"
+path = "src/main.rs"
