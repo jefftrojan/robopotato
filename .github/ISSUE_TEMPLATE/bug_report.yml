@@ -1,0 +1,69 @@
+name: Bug report
+description: Something isn't working correctly
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please fill in as much detail as you can.
+
+  - type: input
+    id: version
+    attributes:
+      label: robopotato version
+      description: "`/health` response `version` field, or output of `cargo pkgid robopotato`"
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: rust_version
+    attributes:
+      label: Rust version
+      description: "`rustc --version`"
+      placeholder: "rustc 1.77.0 (aedd173a2 2024-03-17)"
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS and architecture
+      placeholder: "Ubuntu 22.04 x86_64 / macOS 14 arm64 / Windows 11 x86_64"
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The minimal sequence of HTTP requests, commands, or code that triggers the bug.
+      placeholder: |
+        1. Start server with `ROBOPOTATO_SECRET=x cargo run`
+        2. Register an agent: `curl -X POST .../agents/register -d '{"role":"worker"}'`
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead? Include full error output.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Server logs
+      description: Output with `RUST_LOG=debug ROBOPOTATO_SECRET=x cargo run` if relevant.
+      render: text

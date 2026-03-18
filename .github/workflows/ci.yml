@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # ── Format ──────────────────────────────────────────────────────────────────
+  fmt:
+    name: Rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  # ── Clippy ──────────────────────────────────────────────────────────────────
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy -- -D warnings
+      - run: cargo clippy --features persist -- -D warnings
+
+  # ── Unit tests ──────────────────────────────────────────────────────────────
+  test:
+    name: Unit tests (${{ matrix.features }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        features: ["default", "persist"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run tests (default features)
+        if: matrix.features == 'default'
+        run: cargo test
+      - name: Run tests (persist feature)
+        if: matrix.features == 'persist'
+        run: cargo test --features persist
+
+  # ── Security audit ──────────────────────────────────────────────────────────
+  audit:
+    name: Security audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Audit dependencies
+        run: cargo audit
+
+  # ── Adversarial integration tests ───────────────────────────────────────────
+  integration:
+    name: Adversarial integration tests
+    runs-on: ubuntu-latest
+    needs: [fmt, clippy, test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install Python dependencies
+        run: pip install -r tests/requirements.txt
+
+      - name: Start robopotato server
+        run: |
+          ROBOPOTATO_SECRET=test-secret ./target/release/robopotato &
+          echo $! > /tmp/robopotato.pid
+          # Wait until the health endpoint responds
+          for i in $(seq 1 20); do
+            curl -sf http://127.0.0.1:7878/health && break
+            sleep 0.5
+          done
+
+      - name: Run adversarial test suite
+        env:
+          ROBOPOTATO_URL: http://127.0.0.1:7878
+          ROBOPOTATO_SECRET: test-secret
+        run: python3 tests/test_adversarial.py -v
+
+      - name: Stop server
+        if: always()
+        run: kill $(cat /tmp/robopotato.pid) 2>/dev/null || true

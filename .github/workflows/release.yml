@@ -1,0 +1,134 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # ── Build binaries for each target ──────────────────────────────────────────
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive: tar.gz
+
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            archive: tar.gz
+            cross: true
+
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            archive: tar.gz
+
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            archive: tar.gz
+
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            archive: zip
+            exe_suffix: .exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install cross-compilation toolchain
+        if: matrix.cross
+        run: cargo install cross --locked
+
+      - name: Build (native)
+        if: "!matrix.cross"
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Build (cross)
+        if: matrix.cross
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: Determine binary name
+        id: bin
+        shell: bash
+        run: |
+          BIN="robopotato${{ matrix.exe_suffix }}"
+          SRC="target/${{ matrix.target }}/release/$BIN"
+          ARCHIVE="robopotato-${{ github.ref_name }}-${{ matrix.target }}"
+          echo "src=$SRC" >> "$GITHUB_OUTPUT"
+          echo "archive=$ARCHIVE" >> "$GITHUB_OUTPUT"
+
+      - name: Package (tar.gz)
+        if: matrix.archive == 'tar.gz'
+        run: |
+          mkdir dist
+          cp ${{ steps.bin.outputs.src }} dist/
+          cp README.md LICENSE CHANGELOG.md dist/
+          tar -czf ${{ steps.bin.outputs.archive }}.tar.gz -C dist .
+
+      - name: Package (zip)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory dist
+          Copy-Item ${{ steps.bin.outputs.src }} dist\
+          Copy-Item README.md, LICENSE, CHANGELOG.md dist\
+          Compress-Archive -Path dist\* -DestinationPath "${{ steps.bin.outputs.archive }}.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.bin.outputs.archive }}
+          path: ${{ steps.bin.outputs.archive }}.${{ matrix.archive }}
+          retention-days: 1
+
+  # ── Create GitHub Release and attach all assets ─────────────────────────────
+  release:
+    name: Publish release
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate release notes from CHANGELOG
+        id: notes
+        run: |
+          # Extract the section for this tag from CHANGELOG.md
+          VERSION="${{ github.ref_name }}"
+          VERSION_NO_V="${VERSION#v}"
+          NOTES=$(awk "/^## \[${VERSION_NO_V}\]/{flag=1; next} /^## \[/{flag=0} flag" CHANGELOG.md)
+          echo "notes<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$NOTES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: robopotato ${{ github.ref_name }}
+          body: ${{ steps.notes.outputs.notes }}
+          files: artifacts/**
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
