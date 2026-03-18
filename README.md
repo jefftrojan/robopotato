@@ -1,174 +1,173 @@
-# robopotato 🥔
+<div align="center">
 
-**Lightweight inter-agent trust and shared state server for AI agent swarms.**
+<img src="assets/robopotato_logo.png" alt="robopotato" width="160" />
 
-robopotato solves two hard problems that appear the moment you run more than one AI agent in the same environment:
+# robopotato
 
-1. **Who is allowed to do what?** — Agents receive cryptographically signed capability tokens. Every protected API call is verified; no agent can lie about its identity or escalate its own privileges.
-2. **How do concurrent agents coordinate without stomping on each other?** — A namespaced key-value store with per-key version numbers lets agents perform optimistic-concurrency-controlled (OCC) writes, turning silent data races into explicit 409 Conflict errors.
+**The missing trust layer for AI agent swarms.**
 
-A real-time WebSocket bus streams every state change and lifecycle event so orchestrators and observers always have a live view.
+[![CI](https://github.com/jefftrojan/robopotato/actions/workflows/ci.yml/badge.svg)](https://github.com/jefftrojan/robopotato/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
+[![crates.io](https://img.shields.io/crates/v/robopotato.svg)](https://crates.io/crates/robopotato)
+
+*Cryptographic identity · namespaced shared state · optimistic concurrency control*
+
+[Quick start](#quick-start) · [API reference](#api-reference) · [Demo](#live-demo) · [Whitepaper](WHITEPAPER.md) · [Contributing](CONTRIBUTING.md)
+
+</div>
 
 ---
 
-## Features
+## The problem
 
-| Feature | Detail |
+The moment you run more than one AI agent in the same environment, three things go wrong:
+
+| Failure mode | What happens without robopotato |
 |---|---|
-| HMAC-SHA256 capability tokens | Signed `base64url(json).hex(hmac)` tokens; constant-time verification; no JWT library dependency |
-| Three roles | `orchestrator` · `worker` · `observer` with fine-grained capability checks |
-| Nine capabilities | `state_read/write_{global,shared,own}` · `agent_list` · `agent_revoke` · `token_verify` |
-| Namespaced KV store | `global.*` (orchestrator-only write) · `shared.*` (worker-writable) · `agent.<id>.*` (owner-only) |
-| Optimistic Concurrency Control | Pass `expected_version` on writes; server returns 409 on stale reads |
-| Agent revocation | Orchestrators can revoke any agent mid-flight; revoked tokens are rejected immediately |
-| WebSocket event bus | Streams `StateChanged`, `StateDeleted`, `AgentRegistered`, `AgentRevoked` events |
-| Optional SQLite persistence | Enable with `--features persist` + `ROBOPOTATO_PERSIST=true`; WAL mode, write-through, startup recovery |
-| Framework-agnostic HTTP API | Plain JSON over HTTP — works with curl, Python httpx, any language |
-| Self-contained | Single binary, no external infrastructure required |
+| **Identity spoofing** | Agent B claims to be Agent A. There is no cryptographic check. Trust is a prompt. |
+| **Unauthorized mutation** | Any agent can overwrite any shared state. A confused worker corrupts the orchestrator's config silently. |
+| **Silent concurrency conflicts** | Two agents read version 3, both write version 4. Last writer wins. The first write disappears. Nobody notices. |
+
+robopotato fixes all three at the infrastructure layer — not the prompt layer.
+
+---
+
+## Live demo
+
+Start the server, then run:
+
+```bash
+ROBOPOTATO_SECRET=test-secret cargo run &
+./demo.sh
+```
+
+```
+▶ Registering agents
+  ✓ Orchestrator registered  (id: a1b2c3d4...)
+  ✓ Worker registered         (id: e5f6a7b8...)
+  ✓ Observer registered       (id: c9d0e1f2...)
+  ✓ Rogue worker registered   (id: 33445566...)
+
+▶ Namespace isolation — workers cannot write global.*
+  ✓ Orchestrator writes global.config → HTTP 200
+  ✗ BLOCKED — Worker PUT global.config → HTTP 403 (missing capability: state_write_global)
+
+▶ Observer is read-only — cannot write shared.*
+  ✗ BLOCKED — Observer PUT shared.results → HTTP 403 (missing capability: state_write_shared)
+
+▶ Agent namespace isolation — workers cannot write each other's state
+  ✗ BLOCKED — Worker PUT agent.<orchestrator>.private → HTTP 403 (not the owner)
+  ✓ Worker PUT agent.<self>.private → HTTP 200 (owner allowed)
+
+▶ Optimistic Concurrency Control — concurrent writers, one wins
+  ✓ Worker A writes shared.task (expected_version=1) → HTTP 200
+  ✗ BLOCKED — Worker B writes shared.task (expected_version=1) → HTTP 409 (version conflict: stale read detected)
+
+▶ Mid-task revocation — rogue agent blocked after orchestrator revokes
+  ✓ Rogue agent writes before revocation → HTTP 200
+  ✓ Orchestrator revokes rogue agent → HTTP 200
+  ✗ BLOCKED — Rogue agent write after revocation → HTTP 401 (agent has been revoked)
+
+▶ Token forgery — wrong HMAC secret is rejected
+  ✗ BLOCKED — Forged token PUT global.pwned → HTTP 401 (invalid token signature)
+
+  Summary
+
+  ✓  Namespace isolation    workers cannot touch global.* or other agents' namespaces
+  ✓  Role enforcement       observers are permanently read-only
+  ✓  OCC conflict detection concurrent stale writes produce 409, not silent overwrites
+  ✓  Mid-task revocation    revoked tokens rejected immediately, no restart needed
+  ✓  Token forgery rejected wrong HMAC secret → 401 every time
+
+  All of the above enforced at the infrastructure layer.
+  No prompt-engineering required.
+```
 
 ---
 
 ## Quick start
 
-### Prerequisites
-
-- Rust 1.75+ (`rustup update stable`)
-- Optional: Python 3.11+ with `pip install httpx` for the test suite
-
-### Run
-
 ```bash
-git clone https://github.com/trojan0x/robopotato
+git clone https://github.com/jefftrojan/robopotato
 cd robopotato
 ROBOPOTATO_SECRET=change-me cargo run --release
 ```
 
-The server starts on `http://127.0.0.1:7878`.
+Server starts on `http://127.0.0.1:7878`. Register an agent and start calling:
 
-### With SQLite persistence
+```bash
+# Register
+TOKEN=$(curl -sf -X POST http://127.0.0.1:7878/agents/register \
+  -H "Content-Type: application/json" \
+  -d '{"role":"worker"}' | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+
+# Write shared state
+curl -X PUT http://127.0.0.1:7878/state/shared.task \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"value": {"status": "pending"}}'
+
+# Read it back
+curl http://127.0.0.1:7878/state/shared.task \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+With SQLite persistence across restarts:
 
 ```bash
 ROBOPOTATO_SECRET=change-me \
 ROBOPOTATO_PERSIST=true \
-ROBOPOTATO_DB_PATH=./data/robopotato.db \
+ROBOPOTATO_DB_PATH=./robopotato.db \
 cargo run --release --features persist
 ```
 
-State survives process restarts. The database is created automatically.
+---
+
+## How it works
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        robopotato                           │
+│                                                             │
+│  POST /agents/register  →  HMAC-SHA256 capability token     │
+│                                                             │
+│  PUT  /state/{key}      →  verify token                     │
+│                            check capability for namespace   │
+│                            check expected_version (OCC)     │
+│                            write + publish event            │
+│                                                             │
+│  GET  /events (WS)      →  live stream of all changes       │
+└─────────────────────────────────────────────────────────────┘
+       ↑                          ↑                    ↑
+  orchestrator               worker(s)            observer(s)
+```
+
+Tokens are `base64url(claims_json).hex(hmac_sha256)` — no JWT library, no asymmetric key management, no external auth service. Drop robopotato next to your agents and point them at it.
 
 ---
 
-## Configuration
+## Features
 
-All configuration is via environment variables (or a `.env` file).
-
-| Variable | Default | Description |
-|---|---|---|
-| `ROBOPOTATO_SECRET` | **required** | HMAC signing secret — keep this private |
-| `ROBOPOTATO_HOST` | `127.0.0.1` | Bind address |
-| `ROBOPOTATO_PORT` | `7878` | Bind port |
-| `ROBOPOTATO_TOKEN_TTL` | `3600` | Token lifetime in seconds |
-| `ROBOPOTATO_PERSIST` | `false` | Enable SQLite write-through persistence |
-| `ROBOPOTATO_DB_PATH` | `robopotato.db` | SQLite file path (requires `--features persist`) |
-
-Copy `.env.example` to `.env` and fill in your secret.
-
----
-
-## API reference
-
-### Public endpoints (no auth required)
-
-#### `GET /health`
-```json
-{ "status": "ok", "service": "robopotato", "version": "0.1.0" }
-```
-
-#### `POST /agents/register`
-Register an agent and receive a signed capability token.
-
-```jsonc
-// Request
-{ "role": "worker", "name": "optional-display-name" }
-
-// Response
-{
-  "agent_id": "uuid-v4",
-  "token": "base64payload.hexsig",
-  "role": "worker",
-  "expires_at": "2025-01-01T01:00:00+00:00"
-}
-```
-
-Roles: `orchestrator` | `worker` | `observer`
-
-#### `POST /tokens/verify`
-Verify a token and check the revocation list (useful for agent-to-agent trust checks).
-
-```jsonc
-// Request
-{ "token": "base64payload.hexsig" }
-
-// Response (valid)
-{ "valid": true, "agent_id": "...", "role": "...", "expires_at": "..." }
-
-// Response (invalid)
-{ "valid": false, "reason": "token expired" }
-```
-
-#### `GET /events` (WebSocket)
-Upgrade to WebSocket to receive a live stream of all events.
-
-```jsonc
-// StateChanged
-{ "type": "StateChanged", "key": "shared.task", "version": 3, "agent_id": "..." }
-
-// AgentRevoked
-{ "type": "AgentRevoked", "agent_id": "..." }
-```
-
----
-
-### Protected endpoints (Bearer token required)
-
-All requests must include `Authorization: Bearer <token>`.
-
-#### `GET /state/{key}`
-Read a state entry. Workers can read `global.*` and `shared.*`; they can only read their own `agent.<id>.*`.
-
-#### `PUT /state/{key}`
-Write a state entry.
-
-```jsonc
-// Request
-{ "value": <any JSON>, "expected_version": 2 }  // expected_version is optional (OCC)
-
-// Response — 200 on success
-{ "key": "shared.result", "value": ..., "version": 3, "owner_agent_id": "...", "updated_at": "..." }
-
-// Response — 409 on OCC conflict
-{ "error": "version conflict: expected 2, got 3" }
-```
-
-#### `DELETE /state/{key}`
-Delete a state entry. Requires write capability for the key's namespace.
-
-#### `GET /state/namespace/{ns}`
-List all entries under a namespace prefix (`global`, `shared`, or an `agent.<id>`).
-
-```jsonc
-{ "entries": [ { "key": "...", "value": ..., "version": 1, ... } ] }
-```
-
-#### `DELETE /agents/{id}`
-Revoke an agent. Requires `agent_revoke` capability (orchestrator only).
+| | |
+|---|---|
+| **HMAC-SHA256 tokens** | Signed capability tokens. Constant-time verification. No JWT dependency. |
+| **Three roles** | `orchestrator` · `worker` · `observer` |
+| **Nine capabilities** | `state_read/write_{global,shared,own}` · `agent_list` · `agent_revoke` · `token_verify` |
+| **Namespaced KV store** | `global.*` · `shared.*` · `agent.<id>.*` with per-namespace write rules |
+| **OCC** | `expected_version` on writes → 409 Conflict on stale reads instead of silent overwrites |
+| **Agent revocation** | Orchestrators revoke agents mid-flight; takes effect on the next request |
+| **WebSocket event bus** | Live stream of `StateChanged`, `StateDeleted`, `AgentRegistered`, `AgentRevoked` |
+| **SQLite persistence** | `--features persist` — WAL mode, write-through, startup recovery |
+| **Framework-agnostic** | Plain JSON over HTTP — Python, Node, Go, curl, anything |
+| **Self-contained** | Single Rust binary, no external infrastructure |
 
 ---
 
 ## Capability matrix
 
 | Capability | Orchestrator | Worker | Observer |
-|---|---|---|---|
+|---|:---:|:---:|:---:|
 | `state_read_global` | ✓ | ✓ | ✓ |
 | `state_read_shared` | ✓ | ✓ | ✓ |
 | `state_read_own` | ✓ | ✓ | ✓ |
@@ -181,121 +180,117 @@ Revoke an agent. Requires `agent_revoke` capability (orchestrator only).
 
 ---
 
-## Token format
+## API reference
 
-```
-base64url(JSON claims, no padding) . hex(HMAC-SHA256(payload, secret))
-```
+### Public endpoints
 
-Claims payload:
-```json
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/health` | Liveness probe |
+| `POST` | `/agents/register` | Register agent, receive signed token |
+| `POST` | `/tokens/verify` | Verify token validity + revocation status |
+| `GET` | `/events` | WebSocket — live event stream |
+
+### Protected endpoints (Bearer token required)
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/state/{key}` | Read a state entry |
+| `PUT` | `/state/{key}` | Write a state entry (optional OCC via `expected_version`) |
+| `DELETE` | `/state/{key}` | Delete a state entry |
+| `GET` | `/state/namespace/{ns}` | List all keys under a namespace prefix |
+| `DELETE` | `/agents/{id}` | Revoke an agent (orchestrator only) |
+
+**OCC write example:**
+```jsonc
+// PUT /state/shared.task
 {
-  "agent_id": "uuid-v4",
-  "role": "worker",
-  "capabilities": ["state_read_global", "state_write_shared", "..."],
-  "issued_at": "2025-01-01T00:00:00+00:00",
-  "expires_at": "2025-01-01T01:00:00+00:00",
-  "issuer": "robopotato"
+  "value": { "status": "done" },
+  "expected_version": 3   // omit for last-writer-wins; 409 if current version ≠ 3
 }
 ```
 
-The signature covers the entire base64 payload string. Any modification to the claims (role escalation, capability injection, expiry extension) invalidates the signature. Verification uses constant-time comparison to prevent timing attacks.
+---
+
+## Configuration
+
+| Variable | Default | Description |
+|---|---|---|
+| `ROBOPOTATO_SECRET` | **required** | HMAC signing secret |
+| `ROBOPOTATO_HOST` | `127.0.0.1` | Bind address |
+| `ROBOPOTATO_PORT` | `7878` | Bind port |
+| `ROBOPOTATO_TOKEN_TTL` | `3600` | Token lifetime (seconds) |
+| `ROBOPOTATO_PERSIST` | `false` | Enable SQLite persistence |
+| `ROBOPOTATO_DB_PATH` | `robopotato.db` | SQLite file path |
 
 ---
 
-## Test suite
-
-### Unit tests (no server required)
+## Testing
 
 ```bash
-cargo test                        # in-memory store + token engine
-cargo test --features persist     # with SQLite persistence
+# Unit tests (no server)
+cargo test
+cargo test --features persist
+
+# Adversarial integration tests (20 scenarios)
+ROBOPOTATO_SECRET=test-secret cargo run &
+cd tests && python3 test_adversarial.py -v
+
+# With/without comparison using Claude Code agents
+cd tests && python3 compare.py
 ```
 
-### Adversarial integration tests
-
-Start the server first:
-```bash
-ROBOPOTATO_SECRET=test-secret cargo run
-```
-
-Then in a separate terminal:
-```bash
-cd tests
-pip install httpx
-python3 test_adversarial.py -v
-```
-
-**20 adversarial scenarios** covering:
-- Expired token replay attacks
-- Token forgery (wrong HMAC secret)
-- Privilege escalation via payload tampering
-- Cross-namespace pollution (worker → global/other-agent writes)
-- Observer write attempts
-- Mid-task agent revocation
-- OCC storm (5 concurrent writers, exactly 1 wins)
-- Missing / malformed authorization headers
-- Public endpoint accessibility
-
-### Claude Code comparison test
-
-Requires `claude` CLI installed and configured:
-```bash
-cd tests
-python3 compare.py
-```
-
-Runs the same multi-agent task with and without robopotato and prints a side-by-side security comparison table.
+Adversarial scenarios include: expired token replay, wrong-secret forgery, payload tampering, cross-namespace pollution, observer write attempts, mid-task revocation, OCC storm (5 concurrent writers), and malformed token formats.
 
 ---
 
 ## Project structure
 
 ```
-robopotato/
-├── src/
-│   ├── main.rs              # Server entry point, router, WebSocket handler
-│   ├── config.rs            # Environment-based configuration
-│   ├── errors.rs            # Typed AppError → HTTP response mapping
-│   ├── auth/
-│   │   ├── token.rs         # TokenEngine: sign, verify, TokenClaims
-│   │   └── middleware.rs    # axum auth middleware (Bearer token + revocation)
-│   ├── state/
-│   │   ├── store.rs         # In-memory RwLock KV store with OCC
-│   │   ├── namespace.rs     # Namespace parsing and capability resolution
-│   │   └── persistence.rs   # SQLite write-through (--features persist)
-│   ├── events/
-│   │   └── bus.rs           # Tokio broadcast event bus
-│   └── routes/
-│       ├── agents.rs        # POST /agents/register, DELETE /agents/:id
-│       ├── state.rs         # GET/PUT/DELETE /state/:key, GET /state/namespace/:ns
-│       └── tokens.rs        # POST /tokens/verify
-├── tests/
-│   ├── robopotato_client.py # Python HTTP client wrapper
-│   ├── test_adversarial.py  # 20 programmatic adversarial tests
-│   ├── test_claude_code_agents.py  # Claude Code agent comparison harness
-│   └── compare.py           # Side-by-side with/without runner
-├── WHITEPAPER.md            # Research background and design rationale
-├── CHANGELOG.md
-├── CONTRIBUTING.md
-└── Cargo.toml
+src/
+├── main.rs                  # Router, WebSocket handler
+├── auth/
+│   ├── token.rs             # TokenEngine: sign, verify, claims
+│   └── middleware.rs        # Bearer token enforcement
+├── state/
+│   ├── store.rs             # RwLock KV store with OCC
+│   ├── namespace.rs         # Namespace parsing + capability mapping
+│   └── persistence.rs       # SQLite write-through (--features persist)
+├── events/bus.rs            # Tokio broadcast event bus
+└── routes/                  # agents, state, tokens handlers
+tests/
+├── test_adversarial.py      # 20 programmatic adversarial tests
+├── robopotato_client.py     # Python HTTP client
+└── compare.py               # With/without Claude Code comparison
 ```
 
 ---
 
-## Why robopotato?
+## Why not X?
 
-Multi-agent AI systems fail in three recurring ways that no amount of prompt-engineering reliably fixes:
+| | robopotato | Redis | a shared database | prompt instructions |
+|---|---|---|---|---|
+| Cryptographic agent identity | ✓ | — | — | — |
+| Per-namespace capability enforcement | ✓ | — | — | — |
+| OCC with version conflicts | ✓ | partial | partial | — |
+| Agent revocation | ✓ | — | — | — |
+| Live event bus | ✓ | ✓ | — | — |
+| Self-contained single binary | ✓ | — | — | ✓ |
+| Works with any AI framework | ✓ | ✓ | ✓ | ✓ |
 
-- **Identity spoofing** — one agent claims to be another, inheriting unearned trust
-- **Unauthorized state mutation** — a compromised or confused agent overwrites data it shouldn't touch
-- **Silent concurrency conflicts** — two agents write the same key; the last write wins silently
-
-robopotato addresses all three at the infrastructure layer with cryptographic enforcement, so agent correctness doesn't depend on model-level safety compliance.
-
-See [WHITEPAPER.md](WHITEPAPER.md) for the full research context, threat model, and design rationale.
+robopotato is not a general-purpose database. It is a trust and coordination primitive specifically shaped for AI agent workloads.
 
 ---
+
+## Whitepaper
+
+[WHITEPAPER.md](WHITEPAPER.md) covers the threat model, research context, cryptographic design, and evaluation methodology with 40+ citations.
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Good first issues are labelled [`good first issue`](https://github.com/jefftrojan/robopotato/issues?q=is%3Aopen+label%3A%22good+first+issue%22).
 
 ## License
 

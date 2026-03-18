@@ -78,7 +78,9 @@ pub async fn revoke(
     use crate::auth::token::Capability;
 
     if !claims.has_capability(&Capability::AgentRevoke) {
-        return Err(AppError::Forbidden("requires agent:revoke capability".into()));
+        return Err(AppError::Forbidden(
+            "requires agent:revoke capability".into(),
+        ));
     }
 
     state.revoked_agents.write().await.insert(agent_id.clone());

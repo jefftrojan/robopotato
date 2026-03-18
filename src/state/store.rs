@@ -161,7 +161,10 @@ mod tests {
     #[tokio::test]
     async fn basic_set_get() {
         let store = StateStore::new();
-        let req = WriteRequest { value: json!("hello"), expected_version: None };
+        let req = WriteRequest {
+            value: json!("hello"),
+            expected_version: None,
+        };
         store.set("shared.greeting", req, "agent-1").await.unwrap();
         let entry = store.get("shared.greeting").await.unwrap();
         assert_eq!(entry.value, json!("hello"));
@@ -171,8 +174,28 @@ mod tests {
     #[tokio::test]
     async fn version_increments() {
         let store = StateStore::new();
-        store.set("shared.x", WriteRequest { value: json!(1), expected_version: None }, "a").await.unwrap();
-        store.set("shared.x", WriteRequest { value: json!(2), expected_version: None }, "a").await.unwrap();
+        store
+            .set(
+                "shared.x",
+                WriteRequest {
+                    value: json!(1),
+                    expected_version: None,
+                },
+                "a",
+            )
+            .await
+            .unwrap();
+        store
+            .set(
+                "shared.x",
+                WriteRequest {
+                    value: json!(2),
+                    expected_version: None,
+                },
+                "a",
+            )
+            .await
+            .unwrap();
         let entry = store.get("shared.x").await.unwrap();
         assert_eq!(entry.version, 2);
     }
@@ -180,15 +203,44 @@ mod tests {
     #[tokio::test]
     async fn optimistic_lock_conflict() {
         let store = StateStore::new();
-        store.set("shared.y", WriteRequest { value: json!(1), expected_version: None }, "a").await.unwrap();
-        let result = store.set("shared.y", WriteRequest { value: json!(2), expected_version: Some(99) }, "a").await;
+        store
+            .set(
+                "shared.y",
+                WriteRequest {
+                    value: json!(1),
+                    expected_version: None,
+                },
+                "a",
+            )
+            .await
+            .unwrap();
+        let result = store
+            .set(
+                "shared.y",
+                WriteRequest {
+                    value: json!(2),
+                    expected_version: Some(99),
+                },
+                "a",
+            )
+            .await;
         assert!(matches!(result, Err(AppError::Conflict(_))));
     }
 
     #[tokio::test]
     async fn delete_removes_key() {
         let store = StateStore::new();
-        store.set("global.cfg", WriteRequest { value: json!(true), expected_version: None }, "orch").await.unwrap();
+        store
+            .set(
+                "global.cfg",
+                WriteRequest {
+                    value: json!(true),
+                    expected_version: None,
+                },
+                "orch",
+            )
+            .await
+            .unwrap();
         store.delete("global.cfg").await.unwrap();
         assert!(store.get("global.cfg").await.is_none());
     }

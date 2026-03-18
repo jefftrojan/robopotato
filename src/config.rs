@@ -20,17 +20,13 @@ impl Config {
                 .unwrap_or_else(|_| "7878".into())
                 .parse()
                 .unwrap_or(7878),
-            hmac_secret: env::var("ROBOPOTATO_SECRET")
-                .expect("ROBOPOTATO_SECRET must be set"),
+            hmac_secret: env::var("ROBOPOTATO_SECRET").expect("ROBOPOTATO_SECRET must be set"),
             token_ttl_secs: env::var("ROBOPOTATO_TOKEN_TTL")
                 .unwrap_or_else(|_| "3600".into())
                 .parse()
                 .unwrap_or(3600),
-            persist: env::var("ROBOPOTATO_PERSIST")
-                .unwrap_or_else(|_| "false".into())
-                == "true",
-            db_path: env::var("ROBOPOTATO_DB_PATH")
-                .unwrap_or_else(|_| "robopotato.db".into()),
+            persist: env::var("ROBOPOTATO_PERSIST").unwrap_or_else(|_| "false".into()) == "true",
+            db_path: env::var("ROBOPOTATO_DB_PATH").unwrap_or_else(|_| "robopotato.db".into()),
         }
     }
 }

@@ -26,7 +26,9 @@ pub async fn get_state(
     // For agent namespace, non-orchestrators can only read their own
     if let Namespace::Agent(ref owner) = ns {
         if claims.role != crate::auth::token::Role::Orchestrator && owner != &claims.agent_id {
-            return Err(AppError::Forbidden("cannot read another agent's namespace".into()));
+            return Err(AppError::Forbidden(
+                "cannot read another agent's namespace".into(),
+            ));
         }
     }
 
@@ -60,7 +62,9 @@ pub async fn set_state(
     // For agent namespace, only the owner (or orchestrator) can write
     if let Namespace::Agent(ref owner) = ns {
         if claims.role != crate::auth::token::Role::Orchestrator && owner != &claims.agent_id {
-            return Err(AppError::Forbidden("cannot write to another agent's namespace".into()));
+            return Err(AppError::Forbidden(
+                "cannot write to another agent's namespace".into(),
+            ));
         }
     }
 
@@ -92,12 +96,16 @@ pub async fn delete_state(
     match &ns {
         Namespace::Global | Namespace::Shared => {
             if !claims.has_capability(&Capability::StateWriteGlobal) {
-                return Err(AppError::Forbidden("only orchestrator can delete global/shared keys".into()));
+                return Err(AppError::Forbidden(
+                    "only orchestrator can delete global/shared keys".into(),
+                ));
             }
         }
         Namespace::Agent(owner) => {
             if claims.role != crate::auth::token::Role::Orchestrator && owner != &claims.agent_id {
-                return Err(AppError::Forbidden("cannot delete another agent's keys".into()));
+                return Err(AppError::Forbidden(
+                    "cannot delete another agent's keys".into(),
+                ));
             }
         }
     }
@@ -120,20 +128,26 @@ pub async fn list_namespace(
     let prefix = match ns.as_str() {
         "global" => {
             if !claims.has_capability(&Capability::StateReadGlobal) {
-                return Err(AppError::Forbidden("no read access to global namespace".into()));
+                return Err(AppError::Forbidden(
+                    "no read access to global namespace".into(),
+                ));
             }
             "global.".to_string()
         }
         "shared" => {
             if !claims.has_capability(&Capability::StateReadShared) {
-                return Err(AppError::Forbidden("no read access to shared namespace".into()));
+                return Err(AppError::Forbidden(
+                    "no read access to shared namespace".into(),
+                ));
             }
             "shared.".to_string()
         }
         id => {
             // agent namespace — only owner or orchestrator
             if claims.role != crate::auth::token::Role::Orchestrator && id != claims.agent_id {
-                return Err(AppError::Forbidden("cannot list another agent's namespace".into()));
+                return Err(AppError::Forbidden(
+                    "cannot list another agent's namespace".into(),
+                ));
             }
             format!("agent.{}.", id)
         }
@@ -146,10 +160,7 @@ pub async fn list_namespace(
 fn check_read_access(claims: &TokenClaims, ns: &Namespace) -> Result<(), AppError> {
     let cap = ns.read_capability();
     if !claims.has_capability(&cap) {
-        return Err(AppError::Forbidden(format!(
-            "missing capability: {}",
-            cap
-        )));
+        return Err(AppError::Forbidden(format!("missing capability: {}", cap)));
     }
     Ok(())
 }
@@ -157,10 +168,7 @@ fn check_read_access(claims: &TokenClaims, ns: &Namespace) -> Result<(), AppErro
 fn check_write_access(claims: &TokenClaims, ns: &Namespace) -> Result<(), AppError> {
     let cap = ns.write_capability();
     if !claims.has_capability(&cap) {
-        return Err(AppError::Forbidden(format!(
-            "missing capability: {}",
-            cap
-        )));
+        return Err(AppError::Forbidden(format!("missing capability: {}", cap)));
     }
     Ok(())
 }

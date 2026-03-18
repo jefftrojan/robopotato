@@ -5,10 +5,7 @@ mod events;
 mod routes;
 mod state;
 
-use std::{
-    collections::HashSet,
-    sync::Arc,
-};
+use std::{collections::HashSet, sync::Arc};
 
 use axum::{
     extract::{
@@ -40,8 +37,10 @@ pub struct AppState {
 #[tokio::main]
 async fn main() {
     tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| "robopotato=info,tower_http=debug".into()))
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "robopotato=info,tower_http=debug".into()),
+        )
         .with(tracing_subscriber::fmt::layer())
         .init();
 
@@ -54,7 +53,9 @@ async fn main() {
             .await
             .expect("failed to open SQLite database");
         let s = state::store::StateStore::with_db(pool);
-        s.load_from_db().await.expect("failed to load persisted state");
+        s.load_from_db()
+            .await
+            .expect("failed to load persisted state");
         s
     } else {
         StateStore::new()
@@ -74,7 +75,10 @@ async fn main() {
     // axum 0.8: protected routes first, route_layer with auth, then public routes
     let app = Router::new()
         // Protected — auth middleware applied via route_layer below
-        .route("/agents/{id}", axum::routing::delete(routes::agents::revoke))
+        .route(
+            "/agents/{id}",
+            axum::routing::delete(routes::agents::revoke),
+        )
         .route("/state/namespace/{ns}", get(routes::state::list_namespace))
         .route(
             "/state/{key}",
@@ -95,10 +99,7 @@ async fn main() {
         .layer(TraceLayer::new_for_http())
         .with_state(state.clone());
 
-    let addr = format!(
-        "{}:{}",
-        state.config.host, state.config.port
-    );
+    let addr = format!("{}:{}", state.config.host, state.config.port);
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
     tracing::info!("robopotato listening on {}", addr);
 
@@ -114,10 +115,7 @@ async fn health() -> Json<serde_json::Value> {
 }
 
 /// WebSocket handler — streams state change events to subscribers.
-async fn ws_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
+async fn ws_handler(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> impl IntoResponse {
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 

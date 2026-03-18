@@ -144,10 +144,8 @@ impl TokenEngine {
             anyhow::bail!("invalid token signature");
         }
 
-        let decoded = base64::Engine::decode(
-            &base64::engine::general_purpose::URL_SAFE_NO_PAD,
-            encoded,
-        )?;
+        let decoded =
+            base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, encoded)?;
         let claims: TokenClaims = serde_json::from_slice(&decoded)?;
 
         if claims.is_expired() {
@@ -171,7 +169,10 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }
-    a.iter().zip(b.iter()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+    a.iter()
+        .zip(b.iter())
+        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+        == 0
 }
 
 #[cfg(test)]
@@ -208,10 +209,9 @@ mod tests {
 
         // Decode the payload, change the agent_id, re-encode WITHOUT re-signing
         let parts: Vec<&str> = token.splitn(2, '.').collect();
-        let decoded = base64::Engine::decode(
-            &base64::engine::general_purpose::URL_SAFE_NO_PAD,
-            parts[0],
-        ).unwrap();
+        let decoded =
+            base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, parts[0])
+                .unwrap();
         let mut json: serde_json::Value = serde_json::from_slice(&decoded).unwrap();
         json["agent_id"] = serde_json::json!("hacker-999");
         let new_payload = serde_json::to_string(&json).unwrap();

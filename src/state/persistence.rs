@@ -1,8 +1,8 @@
-/// SQLite-backed persistence for StateStore.
-///
-/// Enabled at runtime when `ROBOPOTATO_PERSIST=true`. The store runs purely
-/// in memory; this module provides write-through and startup-recovery so state
-/// survives process restarts.
+//! SQLite-backed persistence for StateStore.
+//!
+//! Enabled at runtime when `ROBOPOTATO_PERSIST=true`. The store runs purely
+//! in memory; this module provides write-through and startup-recovery so state
+//! survives process restarts.
 
 #[cfg(feature = "persist")]
 pub mod db {

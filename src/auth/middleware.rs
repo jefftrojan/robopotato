@@ -8,12 +8,7 @@ use std::sync::Arc;
 use crate::{errors::AppError, AppState};
 
 /// Public paths that do not require a Bearer token.
-const PUBLIC_PATHS: &[&str] = &[
-    "/health",
-    "/agents/register",
-    "/tokens/verify",
-    "/events",
-];
+const PUBLIC_PATHS: &[&str] = &["/health", "/agents/register", "/tokens/verify", "/events"];
 
 /// Applied to ALL routes. Skips auth for public paths, enforces Bearer token
 /// for everything else. Injects verified `TokenClaims` as a request extension.
