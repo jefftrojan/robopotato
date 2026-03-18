@@ -1,6 +1,6 @@
 [package]
 name = "robopotato"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "Lightweight inter-agent trust and shared state server for AI agent swarms"
 license = "MIT"
