@@ -27,7 +27,7 @@ uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
 
 # Persistence (optional SQLite)
-sqlx = { version = "0.7", features = ["sqlite", "runtime-tokio-rustls", "chrono"], optional = true }
+sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio-rustls", "chrono"], optional = true }
 
 # Config
 dotenvy = "0.15"
