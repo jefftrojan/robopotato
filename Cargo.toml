@@ -1,13 +1,13 @@
 [package]
 name = "robopotato"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Lightweight inter-agent trust and shared state server for AI agent swarms"
 license = "MIT"
 repository = "https://github.com/jefftrojan/robopotato"
 homepage = "https://github.com/jefftrojan/robopotato"
 readme = "README.md"
-keywords = ["ai-agents", "authentication", "websocket", "concurrency", "axum"]
+keywords = ["ai-agents", "ai", "api", "cli", "authentication"]
 categories = ["web-programming", "authentication", "concurrency", "network-programming", "command-line-utilities"]
 exclude = ["assets/*", "demo.cast", "demo.sh", "tests/*", "WHITEPAPER.md"]
 
